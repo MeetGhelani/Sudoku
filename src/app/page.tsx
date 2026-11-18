@@ -1,69 +1,147 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useEffect, useState } from 'react';
+import { useGameState } from '@/hooks/useGameState';
+import GameHeader from '@/components/GameHeader';
+import GameStats from '@/components/GameStats';
+import SudokuBoard from '@/components/SudokuBoard';
+import NumberPad from '@/components/NumberPad';
+import SettingsPopover from '@/components/SettingsPopover';
+import GameCompleteModal from '@/components/GameCompleteModal';
+import type { Difficulty } from '@/lib/game-types';
+
+export default function Page() {
+  const {
+    state,
+    selectCell,
+    enterNumber,
+    eraseCell,
+    undo,
+    toggleNotes,
+    hint,
+    togglePause,
+    newGame,
+    updateSettings,
+    highlightedCells,
+    conflictCells,
+  } = useGameState();
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Keyboard handler
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Ignore when typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      // 1-9: enter number
+      if (e.key >= '1' && e.key <= '9') {
+        e.preventDefault();
+        enterNumber(parseInt(e.key, 10));
+        return;
+      }
+
+      // Backspace / Delete: erase
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        eraseCell();
+        return;
+      }
+
+      // N: toggle notes
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        toggleNotes();
+        return;
+      }
+
+      // Ctrl+Z / Cmd+Z: undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      // Arrow keys: move selected cell
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        const { selectedCell } = state;
+        const row = selectedCell?.row ?? 4;
+        const col = selectedCell?.col ?? 4;
+
+        let nextRow = row;
+        let nextCol = col;
+        if (e.key === 'ArrowUp')    nextRow = Math.max(0, row - 1);
+        if (e.key === 'ArrowDown')  nextRow = Math.min(8, row + 1);
+        if (e.key === 'ArrowLeft')  nextCol = Math.max(0, col - 1);
+        if (e.key === 'ArrowRight') nextCol = Math.min(8, col + 1);
+
+        selectCell(nextRow, nextCol);
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [state, enterNumber, eraseCell, toggleNotes, undo, selectCell]);
+
+  const handleNewGame = (d: Difficulty) => {
+    newGame(d);
+  };
+
+  const handleRetry = () => {
+    newGame(state.difficulty);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="min-h-screen bg-[#101010] flex flex-col items-center justify-start sm:justify-center px-4 py-4 sm:py-6 select-none">
+      <div className="w-full max-w-[480px] flex flex-col gap-4">
+        <GameHeader
+          difficulty={state.difficulty}
+          onDifficultyChange={(d) => newGame(d)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        <GameStats
+          timer={state.timer}
+          mistakes={state.mistakes}
+          maxMistakes={state.maxMistakes}
+          isPaused={state.isPaused}
+          showTimer={state.settings.showTimer}
+          isRunning={state.isRunning}
+          onTogglePause={togglePause}
+        />
+        <SudokuBoard
+          board={state.board}
+          selectedCell={state.selectedCell}
+          highlightedCells={highlightedCells}
+          conflictCells={conflictCells}
+          onCellClick={selectCell}
+        />
+        <NumberPad
+          onNumber={enterNumber}
+          notesMode={state.notesMode}
+          onUndo={undo}
+          onErase={eraseCell}
+          onToggleNotes={toggleNotes}
+          onHint={hint}
+          board={state.board}
+        />
+      </div>
+
+      <SettingsPopover
+        settings={state.settings}
+        onUpdate={updateSettings}
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
+
+      <GameCompleteModal
+        isComplete={state.isComplete}
+        isGameOver={state.isGameOver}
+        timer={state.timer}
+        difficulty={state.difficulty}
+        onNewGame={handleNewGame}
+        onRetry={handleRetry}
+      />
+    </main>
   );
 }
