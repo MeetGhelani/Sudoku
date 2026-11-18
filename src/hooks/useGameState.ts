@@ -1,12 +1,14 @@
 'use client';
 
-import { useReducer, useEffect, useCallback, useMemo } from 'react';
+import { useReducer, useEffect, useCallback, useMemo, useState } from 'react';
 import type { Cell, Difficulty, GameSettings, GameState, HistoryEntry } from '@/lib/game-types';
 import { generatePuzzle } from '@/lib/sudoku-generator';
 import { getHint } from '@/lib/sudoku-solver';
 import { validateBoard, isComplete } from '@/lib/sudoku-validator';
 import { saveGame, loadGame } from '@/lib/game-persistence';
 import { pushHistory, undoMove } from '@/lib/move-history';
+import { sound } from '@/lib/sound';
+import type { Notice } from '@/components/ErrorBanner';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,7 +41,7 @@ function cloneBoard(board: Cell[][]): Cell[][] {
 
 function defaultSettings(): GameSettings {
   return {
-    soundEnabled: false,
+    soundEnabled: true,
     highlightErrors: true,
     showTimer: true,
     autoCheck: true,
@@ -376,6 +378,9 @@ export interface UseGameState {
   updateSettings: (settings: Partial<GameSettings>) => void;
   highlightedCells: Set<string>;
   conflictCells: Set<string>;
+  notice: Notice | null;
+  dismissNotice: () => void;
+  shakingCell: { row: number; col: number } | null;
 }
 
 export function useGameState(): UseGameState {
@@ -383,6 +388,25 @@ export function useGameState(): UseGameState {
     // On first render (SSR-safe): return a placeholder; we'll load on mount.
     return initialGameState();
   });
+
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [shakingCell, setShakingCell] = useState<{ row: number; col: number } | null>(null);
+
+  // Auto-dismiss notice after 4 seconds
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => {
+      setNotice((curr) => (curr?.id === notice.id ? null : curr));
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  // Victory chime when puzzle complete
+  useEffect(() => {
+    if (state.isComplete && state.settings.soundEnabled) {
+      sound.playWin();
+    }
+  }, [state.isComplete, state.settings.soundEnabled]);
 
   // On mount: attempt to restore a saved game or generate a new game
   useEffect(() => {
@@ -403,43 +427,136 @@ export function useGameState(): UseGameState {
   }, []);
 
   // -------------------------------------------------------------------------
-  // Callbacks
+  // Callbacks with UX feedback & sound
   // -------------------------------------------------------------------------
 
   const selectCell = useCallback((row: number, col: number) => {
+    if (state.settings.soundEnabled) {
+      sound.playSelect();
+    }
     dispatch({ type: 'SELECT_CELL', row, col });
-  }, []);
+  }, [state.settings.soundEnabled]);
 
   const enterNumber = useCallback((num: number) => {
+    const { selectedCell, board, solution, notesMode, settings, mistakes, maxMistakes } = state;
+    if (!selectedCell) return;
+    const { row, col } = selectedCell;
+    const cell = board[row][col];
+
+    // Warning if trying to edit a given cell
+    if (cell.isGiven) {
+      if (settings.soundEnabled) sound.playError();
+      setShakingCell({ row, col });
+      setNotice({
+        message: 'Starting clues cannot be modified',
+        type: 'warning',
+        id: Date.now(),
+      });
+      setTimeout(() => setShakingCell(null), 380);
+      return;
+    }
+
+    if (notesMode) {
+      if (cell.value !== 0) {
+        if (settings.soundEnabled) sound.playError();
+        setNotice({
+          message: 'Cell is already filled — erase first to add pencil notes',
+          type: 'warning',
+          id: Date.now(),
+        });
+        return;
+      }
+      if (settings.soundEnabled) sound.playNote();
+      dispatch({ type: 'ENTER_NUMBER', num });
+      return;
+    }
+
+    // Normal mode: check correctness
+    const isCorrect = solution[row][col] === num;
+    if (!isCorrect) {
+      if (settings.soundEnabled) sound.playError();
+      const newMistakes = mistakes + 1;
+      setShakingCell({ row, col });
+      setTimeout(() => setShakingCell(null), 380);
+      setNotice({
+        message: `Incorrect: ${num} does not belong here • Mistake ${newMistakes} of ${maxMistakes}`,
+        type: 'error',
+        id: Date.now(),
+      });
+    } else {
+      if (settings.soundEnabled) sound.playPlace();
+      setNotice(null);
+    }
+
     dispatch({ type: 'ENTER_NUMBER', num });
-  }, []);
+  }, [state]);
 
   const eraseCell = useCallback(() => {
+    const { selectedCell, board, settings } = state;
+    if (!selectedCell) return;
+    const { row, col } = selectedCell;
+    const cell = board[row][col];
+
+    if (cell.isGiven) {
+      if (settings.soundEnabled) sound.playError();
+      setShakingCell({ row, col });
+      setNotice({
+        message: 'Starting clues cannot be erased',
+        type: 'warning',
+        id: Date.now(),
+      });
+      setTimeout(() => setShakingCell(null), 380);
+      return;
+    }
+
+    if (settings.soundEnabled) sound.playErase();
+    setNotice(null);
     dispatch({ type: 'ERASE_CELL' });
-  }, []);
+  }, [state]);
 
   const undo = useCallback(() => {
+    if (state.settings.soundEnabled) sound.playClick();
+    setNotice(null);
     dispatch({ type: 'UNDO' });
-  }, []);
+  }, [state.settings.soundEnabled]);
 
   const toggleNotes = useCallback(() => {
+    if (state.settings.soundEnabled) sound.playNote();
+    const nextMode = !state.notesMode;
+    setNotice({
+      message: nextMode ? 'Pencil Notes mode enabled (1-9 to add notes)' : 'Normal mode enabled',
+      type: 'info',
+      id: Date.now(),
+    });
     dispatch({ type: 'TOGGLE_NOTES' });
-  }, []);
+  }, [state.notesMode, state.settings.soundEnabled]);
 
   const hint = useCallback(() => {
+    if (state.settings.soundEnabled) sound.playPlace();
+    setNotice({
+      message: 'Hint revealed correct number',
+      type: 'info',
+      id: Date.now(),
+    });
     dispatch({ type: 'HINT' });
-  }, []);
+  }, [state.settings.soundEnabled]);
 
   const togglePause = useCallback(() => {
     dispatch({ type: 'TOGGLE_PAUSE' });
   }, []);
 
   const newGame = useCallback((difficulty: Difficulty) => {
+    setNotice(null);
+    setShakingCell(null);
     dispatch({ type: 'NEW_GAME', difficulty });
   }, []);
 
   const updateSettings = useCallback((settings: Partial<GameSettings>) => {
     dispatch({ type: 'UPDATE_SETTINGS', settings });
+  }, []);
+
+  const dismissNotice = useCallback(() => {
+    setNotice(null);
   }, []);
 
   // -------------------------------------------------------------------------
@@ -452,7 +569,7 @@ export function useGameState(): UseGameState {
     if (!selectedCell) return result;
 
     const { row, col } = selectedCell;
-    const selectedValue = board[row][col].value;
+    const selectedValue = board[row]?.[col]?.value ?? 0;
     const boxRow = Math.floor(row / 3) * 3;
     const boxCol = Math.floor(col / 3) * 3;
 
@@ -463,7 +580,7 @@ export function useGameState(): UseGameState {
         const inBox =
           r >= boxRow && r < boxRow + 3 && c >= boxCol && c < boxCol + 3;
         const sameValue =
-          selectedValue !== 0 && board[r][c].value === selectedValue;
+          selectedValue !== 0 && board[r]?.[c]?.value === selectedValue;
 
         if (inRow || inCol || inBox || sameValue) {
           result.add(`${r},${c}`);
@@ -493,5 +610,8 @@ export function useGameState(): UseGameState {
     updateSettings,
     highlightedCells,
     conflictCells,
+    notice,
+    dismissNotice,
+    shakingCell,
   };
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useGameState } from '@/hooks/useGameState';
 import GameHeader from '@/components/GameHeader';
 import GameStats from '@/components/GameStats';
+import ErrorBanner from '@/components/ErrorBanner';
 import SudokuBoard from '@/components/SudokuBoard';
 import NumberPad from '@/components/NumberPad';
 import SettingsPopover from '@/components/SettingsPopover';
@@ -24,6 +25,9 @@ export default function Page() {
     updateSettings,
     highlightedCells,
     conflictCells,
+    notice,
+    dismissNotice,
+    shakingCell,
   } = useGameState();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -94,7 +98,7 @@ export default function Page() {
 
   return (
     <main className="min-h-screen bg-[#101010] flex flex-col items-center justify-start sm:justify-center px-4 py-4 sm:py-6 select-none">
-      <div className="w-full max-w-[480px] flex flex-col gap-4">
+      <div className="w-full max-w-[480px] flex flex-col gap-3.5">
         <GameHeader
           difficulty={state.difficulty}
           onDifficultyChange={(d) => newGame(d)}
@@ -109,11 +113,13 @@ export default function Page() {
           isRunning={state.isRunning}
           onTogglePause={togglePause}
         />
+        <ErrorBanner notice={notice} onDismiss={dismissNotice} />
         <SudokuBoard
           board={state.board}
           selectedCell={state.selectedCell}
           highlightedCells={highlightedCells}
           conflictCells={conflictCells}
+          shakingCell={shakingCell}
           onCellClick={selectCell}
         />
         <NumberPad
