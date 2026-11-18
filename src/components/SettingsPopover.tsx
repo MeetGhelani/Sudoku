@@ -55,9 +55,9 @@ export default function SettingsPopover({
   if (!isOpen) return null;
 
   return (
-    /* Backdrop */
+    /* Backdrop with blur */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-all duration-200"
       onClick={onClose}
     >
       {/* Popover panel — stop click propagation so clicks inside don't close */}
